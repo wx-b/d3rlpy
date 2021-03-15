@@ -145,12 +145,14 @@ def test_discrete_qr_q_function(
 
     # check compute_target
     action = torch.randint(high=action_size, size=(batch_size,))
-    target = q_func.compute_target(x, action)
+    target, extra = q_func.compute_target(x, action)
     assert target.shape == (batch_size, n_quantiles)
+    assert extra == {}
 
     # check compute_target with action=None
-    targets = q_func.compute_target(x)
+    targets, extra = q_func.compute_target(x)
     assert targets.shape == (batch_size, action_size, n_quantiles)
+    assert extra == {}
 
     # check quantile huber loss
     obs_t = torch.rand(batch_size, feature_size)
@@ -207,8 +209,9 @@ def test_continuous_qr_q_function(
     for i in range(n_quantiles):
         assert np.allclose(taus[0][i].numpy(), i * step + step / 2.0)
 
-    target = q_func.compute_target(x, action)
+    target, extra = q_func.compute_target(x, action)
     assert target.shape == (batch_size, n_quantiles)
+    assert extra == {}
 
     # check quantile huber loss
     obs_t = torch.rand(batch_size, feature_size)
@@ -275,12 +278,14 @@ def test_discrete_iqn_q_function(
 
     # check compute_target
     action = torch.randint(high=action_size, size=(batch_size,))
-    target = q_func.compute_target(x, action)
+    target, extra = q_func.compute_target(x, action)
     assert target.shape == (batch_size, n_quantiles)
+    assert extra == {}
 
     # check compute_target with action=None
-    targets = q_func.compute_target(x)
+    targets, extra = q_func.compute_target(x)
     assert targets.shape == (batch_size, action_size, n_quantiles)
+    assert extra == {}
 
     # TODO: check quantile huber loss
     obs_t = torch.rand(batch_size, feature_size)
@@ -335,8 +340,9 @@ def test_continuous_iqn_q_function(
     assert y.shape == (batch_size, 1)
     q_func.train()
 
-    target = q_func.compute_target(x, action)
+    target, extra = q_func.compute_target(x, action)
     assert target.shape == (batch_size, n_quantiles)
+    assert extra == {}
 
     # TODO: check quantile huber loss
     obs_t = torch.rand(batch_size, feature_size)
@@ -375,12 +381,14 @@ def test_discrete_fqf_q_function(
 
     # check compute_target
     action = torch.randint(high=action_size, size=(batch_size,))
-    target = q_func.compute_target(x, action)
+    target, extra = q_func.compute_target(x, action)
     assert target.shape == (batch_size, n_quantiles)
+    assert extra == {}
 
     # check compute_target
-    targets = q_func.compute_target(x)
+    targets, extra = q_func.compute_target(x)
     assert targets.shape == (batch_size, action_size, n_quantiles)
+    assert extra == {}
 
     # TODO: check quantile huber loss
     obs_t = torch.rand(batch_size, feature_size)
@@ -418,8 +426,9 @@ def test_continuous_fqf_q_function(
     y = q_func(x, action)
     assert y.shape == (batch_size, 1)
 
-    target = q_func.compute_target(x, action)
+    target, extra = q_func.compute_target(x, action)
     assert target.shape == (batch_size, n_quantiles)
+    assert extra == {}
 
     # TODO: check quantile huber loss
     obs_t = torch.rand(batch_size, feature_size)
@@ -468,13 +477,15 @@ def test_discrete_mean_q_function(feature_size, action_size, batch_size, gamma):
 
     # check compute_target
     action = torch.randint(high=action_size, size=(batch_size,))
-    target = q_func.compute_target(x, action)
+    target, extra = q_func.compute_target(x, action)
     assert target.shape == (batch_size, 1)
     assert torch.allclose(y[torch.arange(batch_size), action], target.view(-1))
+    assert extra == {}
 
     # check compute_target with action=None
-    targets = q_func.compute_target(x)
+    targets, extra = q_func.compute_target(x)
     assert targets.shape == (batch_size, action_size)
+    assert extra == {}
 
     # check td calculation
     q_tp1 = np.random.random((batch_size, 1))
@@ -548,22 +559,26 @@ def test_ensemble_discrete_q_function(
 
     # check compute_target
     action = torch.randint(high=action_size, size=(batch_size,))
-    target = q_func.compute_target(x, action)
+    target, extras = q_func.compute_target(x, action)
     if q_func_factory == "mean":
         assert target.shape == (batch_size, 1)
         min_values = values.min(dim=0).values
         assert torch.allclose(
             min_values[torch.arange(batch_size), action], target.view(-1)
         )
+        assert len(extras) == ensemble_size
     else:
         assert target.shape == (batch_size, n_quantiles)
+        assert len(extras) == ensemble_size
 
     # check compute_target with action=None
-    targets = q_func.compute_target(x)
+    targets, extras = q_func.compute_target(x)
     if q_func_factory == "mean":
         assert targets.shape == (batch_size, action_size)
+        assert len(extras) == ensemble_size
     else:
         assert targets.shape == (batch_size, action_size, n_quantiles)
+        assert len(extras) == ensemble_size
 
     # check reductions
     if q_func_factory != "iqn":
@@ -643,9 +658,10 @@ def test_continuous_mean_q_function(
     assert y.shape == (batch_size, 1)
 
     # check compute_target
-    target = q_func.compute_target(x, action)
+    target, extra = q_func.compute_target(x, action)
     assert target.shape == (batch_size, 1)
     assert (target == y).all()
+    assert extra == {}
 
     # check td calculation
     q_tp1 = np.random.random((batch_size, 1))
@@ -715,13 +731,15 @@ def test_ensemble_continuous_q_function(
     assert values.shape == (ensemble_size, batch_size, 1)
 
     # check compute_target
-    target = q_func.compute_target(x, action)
+    target, extras = q_func.compute_target(x, action)
     if q_func_factory == "mean":
         assert target.shape == (batch_size, 1)
         min_values = values.min(dim=0).values
         assert (target == min_values).all()
+        assert len(extras) == ensemble_size
     else:
         assert target.shape == (batch_size, n_quantiles)
+        assert len(extras) == ensemble_size
 
     # check reductions
     if q_func_factory != "iqn":

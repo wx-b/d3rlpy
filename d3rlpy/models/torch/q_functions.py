@@ -1,6 +1,6 @@
 import math
 from abc import ABCMeta, abstractmethod
-from typing import List, Optional, Tuple, Union, cast
+from typing import Dict, List, Optional, Tuple, Union, cast
 
 import torch
 import torch.nn as nn
@@ -61,6 +61,7 @@ class QFunction(metaclass=ABCMeta):
         ter_tp1: torch.Tensor,
         gamma: float = 0.99,
         reduction: str = "mean",
+        extra: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         pass
 
@@ -77,7 +78,7 @@ class DiscreteQFunction(QFunction):
     @abstractmethod
     def compute_target(
         self, x: torch.Tensor, action: Optional[torch.Tensor]
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         pass
 
     @abstractmethod
@@ -97,7 +98,7 @@ class ContinuousQFunction(QFunction):
     @abstractmethod
     def compute_target(
         self, x: torch.Tensor, action: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         pass
 
     @abstractmethod
@@ -132,6 +133,7 @@ class DiscreteMeanQFunction(nn.Module, DiscreteQFunction):  # type: ignore
         ter_tp1: torch.Tensor,
         gamma: float = 0.99,
         reduction: str = "mean",
+        extra: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         one_hot = F.one_hot(act_t.view(-1), num_classes=self.action_size)
         q_t = (self.forward(obs_t) * one_hot.float()).sum(dim=1, keepdim=True)
@@ -141,10 +143,10 @@ class DiscreteMeanQFunction(nn.Module, DiscreteQFunction):  # type: ignore
 
     def compute_target(
         self, x: torch.Tensor, action: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         if action is None:
-            return self.forward(x)
-        return _pick_value_by_action(self.forward(x), action, keepdim=True)
+            return self.forward(x), {}
+        return _pick_value_by_action(self.forward(x), action, keepdim=True), {}
 
     @property
     def action_size(self) -> int:
@@ -178,6 +180,7 @@ class ContinuousMeanQFunction(nn.Module, ContinuousQFunction):  # type: ignore
         ter_tp1: torch.Tensor,
         gamma: float = 0.99,
         reduction: str = "mean",
+        extra: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         q_t = self.forward(obs_t, act_t)
         y = rew_tp1 + gamma * q_tp1 * (1 - ter_tp1)
@@ -186,8 +189,8 @@ class ContinuousMeanQFunction(nn.Module, ContinuousQFunction):  # type: ignore
 
     def compute_target(
         self, x: torch.Tensor, action: torch.Tensor
-    ) -> torch.Tensor:
-        return self.forward(x, action)
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        return self.forward(x, action), {}
 
     @property
     def action_size(self) -> int:
@@ -263,6 +266,7 @@ class DiscreteQRQFunction(QRQFunction, DiscreteQFunction):
         ter_tp1: torch.Tensor,
         gamma: float = 0.99,
         reduction: str = "mean",
+        extra: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         assert q_tp1.shape == (obs_t.shape[0], self._n_quantiles)
 
@@ -285,13 +289,13 @@ class DiscreteQRQFunction(QRQFunction, DiscreteQFunction):
 
     def compute_target(
         self, x: torch.Tensor, action: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         h = self._encoder(x)
         taus = self._make_taus(h)
         quantiles = self._compute_quantiles(h, taus)
         if action is None:
-            return quantiles
-        return _pick_value_by_action(quantiles, action)
+            return quantiles, {}
+        return _pick_value_by_action(quantiles, action), {}
 
     @property
     def action_size(self) -> int:
@@ -333,6 +337,7 @@ class ContinuousQRQFunction(QRQFunction, ContinuousQFunction):
         ter_tp1: torch.Tensor,
         gamma: float = 0.99,
         reduction: str = "mean",
+        extra: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         assert q_tp1.shape == (obs_t.shape[0], self._n_quantiles)
 
@@ -353,10 +358,10 @@ class ContinuousQRQFunction(QRQFunction, ContinuousQFunction):
 
     def compute_target(
         self, x: torch.Tensor, action: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         h = self._encoder(x, action)
         taus = self._make_taus(h)
-        return self._compute_quantiles(h, taus)
+        return self._compute_quantiles(h, taus), {}
 
     @property
     def action_size(self) -> int:
@@ -459,6 +464,7 @@ class DiscreteIQNQFunction(IQNQFunction, DiscreteQFunction):
         ter_tp1: torch.Tensor,
         gamma: float = 0.99,
         reduction: str = "mean",
+        extra: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         assert q_tp1.shape == (obs_t.shape[0], self._n_quantiles)
 
@@ -481,13 +487,13 @@ class DiscreteIQNQFunction(IQNQFunction, DiscreteQFunction):
 
     def compute_target(
         self, x: torch.Tensor, action: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         h = self._encoder(x)
         taus = self._make_taus(h)
         quantiles = self._compute_quantiles(h, taus)
         if action is None:
-            return quantiles
-        return _pick_value_by_action(quantiles, action)
+            return quantiles, {}
+        return _pick_value_by_action(quantiles, action), {}
 
     @property
     def action_size(self) -> int:
@@ -543,6 +549,7 @@ class ContinuousIQNQFunction(IQNQFunction, ContinuousQFunction):
         ter_tp1: torch.Tensor,
         gamma: float = 0.99,
         reduction: str = "mean",
+        extra: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         assert q_tp1.shape == (obs_t.shape[0], self._n_quantiles)
 
@@ -563,10 +570,10 @@ class ContinuousIQNQFunction(IQNQFunction, ContinuousQFunction):
 
     def compute_target(
         self, x: torch.Tensor, action: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         h = self._encoder(x, action)
         taus = self._make_taus(h)
-        return self._compute_quantiles(h, taus)
+        return self._compute_quantiles(h, taus), {}
 
     @property
     def action_size(self) -> int:
@@ -651,6 +658,7 @@ class DiscreteFQFQFunction(FQFQFunction, DiscreteQFunction):
         ter_tp1: torch.Tensor,
         gamma: float = 0.99,
         reduction: str = "mean",
+        extra: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         assert q_tp1.shape == (obs_t.shape[0], self._n_quantiles)
 
@@ -709,13 +717,13 @@ class DiscreteFQFQFunction(FQFQFunction, DiscreteQFunction):
 
     def compute_target(
         self, x: torch.Tensor, action: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         h = self._encoder(x)
         _, _, taus_prime, _ = self._make_fqf_taus(h)
         quantiles = self._compute_quantiles(h, taus_prime.detach())
         if action is None:
-            return quantiles
-        return _pick_value_by_action(quantiles, action)
+            return quantiles, {}
+        return _pick_value_by_action(quantiles, action), {}
 
     @property
     def action_size(self) -> int:
@@ -769,6 +777,7 @@ class ContinuousFQFQFunction(FQFQFunction, ContinuousQFunction):
         ter_tp1: torch.Tensor,
         gamma: float = 0.99,
         reduction: str = "mean",
+        extra: Optional[Dict[str, torch.Tensor]] = None,
     ) -> torch.Tensor:
         assert q_tp1.shape == (obs_t.shape[0], self._n_quantiles)
 
@@ -817,10 +826,10 @@ class ContinuousFQFQFunction(FQFQFunction, ContinuousQFunction):
 
     def compute_target(
         self, x: torch.Tensor, action: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         h = self._encoder(x, action)
         _, _, taus_prime, _ = self._make_fqf_taus(h)
-        return self._compute_quantiles(h, taus_prime.detach())
+        return self._compute_quantiles(h, taus_prime.detach()), {}
 
     @property
     def action_size(self) -> int:
@@ -916,6 +925,7 @@ class EnsembleQFunction(nn.Module):  # type: ignore
         gamma: float = 0.99,
         use_independent_target: bool = False,
         masks: Optional[torch.Tensor] = None,
+        extras: Optional[List[Dict[str, torch.Tensor]]] = None,
     ) -> torch.Tensor:
         if use_independent_target:
             assert q_tp1.ndim == 3
@@ -928,6 +938,9 @@ class EnsembleQFunction(nn.Module):  # type: ignore
                 f"mask_size must be {len(self._q_funcs)}."
             )
 
+        if extras:
+            assert len(extras) == obs_t.shape[0]
+
         td_sum = torch.tensor(0.0, dtype=torch.float32, device=obs_t.device)
         for i, q_func in enumerate(self._q_funcs):
             if use_independent_target:
@@ -936,7 +949,14 @@ class EnsembleQFunction(nn.Module):  # type: ignore
                 target = q_tp1
 
             loss = q_func.compute_error(
-                obs_t, act_t, rew_tp1, target, ter_tp1, gamma, reduction="none"
+                obs_t,
+                act_t,
+                rew_tp1,
+                target,
+                ter_tp1,
+                gamma,
+                reduction="none",
+                extra=extras[i] if extras else None,
             )
 
             if self._bootstrap:
@@ -957,27 +977,29 @@ class EnsembleQFunction(nn.Module):  # type: ignore
         action: Optional[torch.Tensor] = None,
         reduction: str = "min",
         lam: float = 0.75,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, List[Dict[str, torch.Tensor]]]:
         values_list: List[torch.Tensor] = []
+        extras: List[Dict[str, torch.Tensor]] = []
         for q_func in self._q_funcs:
-            target = q_func.compute_target(x, action)
+            target, extra = q_func.compute_target(x, action)
             values_list.append(target.reshape(1, x.shape[0], -1))
+            extras.append(extra)
 
         values = torch.cat(values_list, dim=0)
 
         if action is None:
             # mean Q function
             if values.shape[2] == self._action_size:
-                return _reduce_ensemble(values, reduction)
+                return _reduce_ensemble(values, reduction), extras
             # distributional Q function
             n_q_funcs = values.shape[0]
             values = values.view(n_q_funcs, x.shape[0], self._action_size, -1)
-            return _reduce_quantile_ensemble(values, reduction)
+            return _reduce_quantile_ensemble(values, reduction), extras
 
         if values.shape[2] == 1:
-            return _reduce_ensemble(values, reduction, lam=lam)
+            return _reduce_ensemble(values, reduction, lam=lam), extras
 
-        return _reduce_quantile_ensemble(values, reduction, lam=lam)
+        return _reduce_quantile_ensemble(values, reduction, lam=lam), extras
 
     @property
     def q_funcs(self) -> nn.ModuleList:
@@ -1006,7 +1028,7 @@ class EnsembleDiscreteQFunction(EnsembleQFunction):
         action: Optional[torch.Tensor] = None,
         reduction: str = "min",
         lam: float = 0.75,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, List[Dict[str, torch.Tensor]]]:
         return self._compute_target(x, action, reduction, lam)
 
 
@@ -1030,7 +1052,7 @@ class EnsembleContinuousQFunction(EnsembleQFunction):
         action: torch.Tensor,
         reduction: str = "min",
         lam: float = 0.75,
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, List[Dict[str, torch.Tensor]]]:
         return self._compute_target(x, action, reduction, lam)
 
 
@@ -1060,7 +1082,7 @@ def compute_max_with_n_actions_and_indices(
     flat_actions = actions.reshape(batch_size * n_actions, -1)
 
     # estimate values while taking care of quantiles
-    flat_values = q_func.compute_target(flat_x, flat_actions, "none")
+    flat_values = q_func.compute_target(flat_x, flat_actions, "none")[0]
     # reshape to (n_ensembles, batch_size, n, -1)
     transposed_values = flat_values.view(n_critics, batch_size, n_actions, -1)
     # (n_ensembles, batch_size, n, -1) -> (batch_size, n_ensembles, n, -1)
